@@ -271,6 +271,11 @@
             background: rgba(0, 200, 83, 0.1);
         }
 
+        .message.own {
+            background: rgba(0, 191, 255, 0.1);
+            border-left-color: var(--secondary);
+        }
+
         .message-header {
             display: flex;
             justify-content: space-between;
@@ -432,34 +437,6 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        .typing-indicator {
-            display: inline-block;
-            padding: 5px 10px;
-            background: rgba(138, 43, 226, 0.2);
-            border-radius: 15px;
-            font-style: italic;
-            color: var(--secondary);
-            margin-top: 5px;
-        }
-
-        .typing-indicator span {
-            animation: blink 1.4s infinite;
-            opacity: 0.6;
-        }
-
-        .typing-indicator span:nth-child(2) {
-            animation-delay: 0.2s;
-        }
-
-        .typing-indicator span:nth-child(3) {
-            animation-delay: 0.4s;
-        }
-
-        @keyframes blink {
-            0%, 100% { opacity: 0.2; }
-            50% { opacity: 1; }
-        }
-
         .recipient-info {
             background: rgba(0, 191, 255, 0.1);
             padding: 10px 15px;
@@ -467,7 +444,17 @@
             margin-bottom: 15px;
             display: flex;
             align-items: center;
+            justify-content: space-between;
             gap: 10px;
+        }
+
+        .last-cleared {
+            text-align: center;
+            padding: 10px;
+            background: rgba(255, 107, 107, 0.1);
+            border-radius: 10px;
+            margin-bottom: 15px;
+            font-size: 0.9rem;
         }
 
         @media (max-width: 768px) {
@@ -489,6 +476,44 @@
             
             .auth-container, .chat-container {
                 padding: 25px;
+            }
+            
+            .online-counter {
+                top: 15px;
+                right: 15px;
+                padding: 10px 15px;
+                font-size: 0.9rem;
+            }
+            
+            .chat-box {
+                height: 350px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 10px;
+            }
+            
+            h1 {
+                font-size: 1.8rem;
+            }
+            
+            .auth-container, .chat-container {
+                padding: 20px;
+            }
+            
+            .btn {
+                width: 100%;
+                margin-right: 0;
+            }
+            
+            .input-group {
+                flex-direction: column;
+            }
+            
+            .input-group .btn {
+                width: 100%;
             }
         }
     </style>
@@ -537,6 +562,9 @@
             <!-- Общий чат -->
             <div id="public-chat" class="hidden">
                 <h3><i class="fas fa-globe"></i> Общий чат</h3>
+                <div id="last-cleared" class="last-cleared hidden">
+                    Сообщения очищены: <span id="last-cleared-time"></span>
+                </div>
                 <div id="public-messages" class="chat-box"></div>
                 <div class="input-group">
                     <input type="text" id="public-message-input" placeholder="Введите сообщение...">
@@ -552,7 +580,9 @@
                     <button id="search-user-btn" class="btn"><i class="fas fa-search"></i> Найти</button>
                 </div>
                 <div id="recipient-info" class="recipient-info hidden">
-                    <i class="fas fa-user"></i> Сообщения с: <span id="current-recipient-name"></span>
+                    <div>
+                        <i class="fas fa-user"></i> Сообщения с: <span id="current-recipient-name"></span>
+                    </div>
                     <button id="close-private-chat" class="btn btn-danger"><i class="fas fa-times"></i></button>
                 </div>
                 <div id="private-messages" class="chat-box"></div>
@@ -626,7 +656,7 @@
         </div>
         
         <footer>
-            <p><i class="fas fa-copyright"></i> Анонимный чат-форум &copy; 2023 | Все сообщения удаляются ежемесячно</p>
+            <p><i class="fas fa-copyright"></i> Анонимный чат-форум &copy; 2023 | Сообщения очищаются ежедневно в 00:00</p>
         </footer>
     </div>
 
@@ -646,6 +676,7 @@
             todayUsers: 0,
             lastReset: new Date().toISOString()
         };
+        let lastClearedTime = null;
         
         // DOM элементы
         const authSection = document.getElementById('auth-section');
@@ -653,6 +684,8 @@
         const userNickname = document.getElementById('user-nickname');
         const onlineCount = document.getElementById('online-count');
         const notification = document.getElementById('notification');
+        const lastCleared = document.getElementById('last-cleared');
+        const lastClearedTimeEl = document.getElementById('last-cleared-time');
         
         // Кнопки
         const loginBtn = document.getElementById('login-btn');
@@ -692,7 +725,8 @@
             checkAuth();
             updateOnlineStatus();
             setInterval(updateOnlineStatus, 10000); // Обновляем каждые 10 секунд
-            setInterval(clearMonthlyMessages, 86400000); // Раз в сутки проверяем очистку
+            setInterval(clearDailyMessages, 60000); // Проверяем очистку каждую минуту
+            loadPublicMessages(); // Загружаем сообщения при старте
         });
         
         // Загрузка данных из localStorage
@@ -725,6 +759,14 @@
             const statsData = localStorage.getItem('chatStats');
             if (statsData) {
                 stats = JSON.parse(statsData);
+            }
+            
+            // Загрузка времени последней очистки
+            const lastClearedData = localStorage.getItem('chatLastCleared');
+            if (lastClearedData) {
+                lastClearedTime = new Date(lastClearedData);
+                lastClearedTimeEl.textContent = lastClearedTime.toLocaleString();
+                lastCleared.classList.remove('hidden');
             }
             
             // Проверка сброса статистики за день
@@ -930,6 +972,7 @@
             publicChat.classList.remove('hidden');
             privateChat.classList.add('hidden');
             adminPanel.classList.add('hidden');
+            loadPublicMessages(); // Обновляем сообщения при переходе
         }
         
         // Показать личные сообщения
@@ -965,9 +1008,14 @@
             const messagesContainer = document.getElementById('public-messages');
             messagesContainer.innerHTML = '';
             
+            if (messageHistory.length === 0) {
+                messagesContainer.innerHTML = '<div class="message"><div class="message-content">Сообщений пока нет. Будьте первым!</div></div>';
+                return;
+            }
+            
             messageHistory.forEach(msg => {
                 const messageElement = document.createElement('div');
-                messageElement.className = `message ${msg.from === 'admin' ? 'admin' : ''}`;
+                messageElement.className = `message ${msg.from === 'admin' ? 'admin' : ''} ${msg.from === currentUser.username ? 'own' : ''}`;
                 messageElement.innerHTML = `
                     <div class="message-header">
                         <span><i class="fas fa-user"></i> ${escapeHtml(msg.from)}</span>
@@ -1271,14 +1319,28 @@
             }, 3000);
         }
         
-        // Очистка сообщений каждый месяц
-        function clearMonthlyMessages() {
+        // Очистка сообщений каждый день в 00:00
+        function clearDailyMessages() {
             const now = new Date();
-            if (now.getDate() === 1 && now.getHours() === 0) {
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+            
+            // Проверяем, наступил ли новый день
+            const today = new Date().toDateString();
+            const lastClearedDate = lastClearedTime ? lastClearedTime.toDateString() : null;
+            
+            if (today !== lastClearedDate && hours === 0 && minutes === 0) {
                 messageHistory = [];
                 privateMessages = {};
                 saveData();
-                showNotification('Сообщения за прошлый месяц удалены', 'info');
+                
+                lastClearedTime = new Date();
+                localStorage.setItem('chatLastCleared', lastClearedTime.toISOString());
+                lastClearedTimeEl.textContent = lastClearedTime.toLocaleString();
+                lastCleared.classList.remove('hidden');
+                
+                showNotification('Сообщения за вчерашний день удалены', 'info');
+                loadPublicMessages();
             }
         }
         
@@ -1302,6 +1364,14 @@
         searchUserInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') searchUserBtn.click();
         });
+        
+        // Автоматическое обновление общего чата каждые 5 секунд
+        setInterval(() => {
+            if (!publicChat.classList.contains('hidden')) {
+                loadData(); // Перезагружаем данные
+                loadPublicMessages(); // Обновляем отображение
+            }
+        }, 5000);
     </script>
 </body>
 </html>
